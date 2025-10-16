@@ -40,7 +40,7 @@ fn create_graphics_resources(state: &mut WindowState, hwnd: HWND) -> Result<()> 
     }
 
     let mut rect = RECT::default();
-    unsafe { GetClientRect(hwnd, &mut rect)? };
+    unsafe { GetClientRect(hwnd, &mut rect)?; }
 
     let render_target: ID2D1HwndRenderTarget = unsafe {
         let props = D2D1_RENDER_TARGET_PROPERTIES::default();
@@ -55,12 +55,10 @@ fn create_graphics_resources(state: &mut WindowState, hwnd: HWND) -> Result<()> 
         state.d2d_factory.CreateHwndRenderTarget(&props, &hwnd_props)?
     };
 
-    // ---- 这是最关键的修正之一：创建画刷时也要先转换接口 ----
     let black_brush: ID2D1SolidColorBrush = unsafe {
-    let rt: &ID2D1RenderTarget = &render_target.cast()?;
-    rt.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }, None)?
-	};
-    // ---------------------------------------------------
+        let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+        render_target.CreateSolidColorBrush(&color, None)?
+    };
     
     let text_format = unsafe {
         state.dwrite_factory.CreateTextFormat(
@@ -78,8 +76,7 @@ fn create_graphics_resources(state: &mut WindowState, hwnd: HWND) -> Result<()> 
 }
 
 fn main() -> Result<()> {
-    // ... main 函数的前半部分保持不变 ...
-    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED)? };
+    unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?; }
     let d2d_factory: ID2D1Factory = unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)? };
     let dwrite_factory: IDWriteFactory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
     let ui_to_core_channel_id = "firefly_ui_to_core_channel";
@@ -99,11 +96,28 @@ fn main() -> Result<()> {
     unsafe {
         let instance = GetModuleHandleA(None)?;
         let class_name = w!("FireflyWindowClass");
-        let wc = WNDCLASSW { style: CS_HREDRAW | CS_VREDRAW, hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as isize), hCursor: LoadCursorW(None, IDC_ARROW)?, lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: class_name, ..Default::default() };
+        let wc = WNDCLASSW { 
+            style: CS_HREDRAW | CS_VREDRAW, 
+            hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut _), 
+            hCursor: LoadCursorW(None, IDC_ARROW)?, 
+            lpfnWndProc: Some(window_proc), 
+            hInstance: instance.into(), 
+            lpszClassName: class_name, 
+            ..Default::default() 
+        };
         let atom = RegisterClassW(&wc);
         if atom == 0 { panic!("UI: register class failed"); }
-        let hwnd = CreateWindowExW(WINDOW_EX_STYLE::default(), class_name, w!("Firefly Editor"), WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, None, None, instance, Some(&mut window_state as *mut _ as _));
-        if hwnd.0 == 0 { panic!("UI: create window failed"); }
+        let hwnd = CreateWindowExW(
+            WINDOW_EX_STYLE::default(), 
+            class_name, 
+            w!("Firefly Editor"), 
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE, 
+            CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, 
+            None, None, 
+            Some(instance.into()),
+            Some(&mut window_state as *mut _ as _)
+        )?;
+        
         let mut message = MSG::default();
         loop {
             if PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).into() {
@@ -124,7 +138,7 @@ fn main() -> Result<()> {
                         Ok(DrawCommand::RenderLine { line_num, text }) => {
                             if line_num >= state.lines.len() { state.lines.resize(line_num + 1, String::new()); }
                             state.lines[line_num] = text;
-                            InvalidateRect(hwnd, None, false);
+                            InvalidateRect(Some(hwnd), None, false);
                         }
                         Err(e) => eprintln!("[UI] 错误: 反序列化绘图指令失败: {}", e),
                     }
@@ -166,9 +180,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         WM_PAINT => {
             create_graphics_resources(state, hwnd).expect("UI: 创建绘图资源失败");
             if let (Some(rt_hwnd), Some(brush), Some(format)) = (&state.render_target, &state.black_brush, &state.text_format) {
-                // ---- 这是最关键的修正之二：使用 cast::<T>() 进行接口转换 ----
                 if let Ok(rt) = rt_hwnd.cast::<ID2D1RenderTarget>() {
-                // --------------------------------------------------------
                     unsafe {
                         rt.BeginDraw();
                         rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
@@ -183,7 +195,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     }
                 }
             }
-            ValidateRect(hwnd, None);
+            ValidateRect(Some(hwnd), None);
             LRESULT(0)
         }
         WM_SIZE => {
