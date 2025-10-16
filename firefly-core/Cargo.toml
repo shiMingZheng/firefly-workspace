@@ -1,0 +1,16 @@
+[package]
+name = "firefly-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+ropey = "1.6"
+pulldown-cmark = { version = "0.9", default-features = false }
+tantivy = "0.19"
+shared_memory = "0.12"
+parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# 新增下面这行
+firefly-ipc = { path = "../firefly-ipc" }
